@@ -1,12 +1,45 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Download, Loader2, Sparkles, Users, Zap } from "lucide-react";
 import { api } from "./data-provider";
+import { authHeaders, clearSessionToken } from "@/lib/session-client";
 import { Badge, EmptyState, Panel, ToastProvider, useToast } from "./ui";
 
 function Wizard({ userName }: { userName: string }) {
   const { push } = useToast();
+  // The server may not have been able to identify us (cookies blocked in an
+  // embedded frame). In that case confirm the session with the header token
+  // before showing the wizard, and bounce to sign-in if it really is invalid.
+  const [name, setName] = useState(userName);
+  const [checking, setChecking] = useState(!userName);
+
+  useEffect(() => {
+    if (userName) return;
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store", headers: authHeaders() })
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (!json.user) {
+          clearSessionToken();
+          window.location.assign("/login");
+          return;
+        }
+        if (json.leagues?.length) {
+          window.location.assign("/dashboard");
+          return;
+        }
+        setName(json.user.name);
+        setChecking(false);
+      })
+      .catch(() => {
+        if (!cancelled) window.location.assign("/login");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userName]);
   const [username, setUsername] = useState("");
   const [teamName, setTeamName] = useState("Autonomous FC");
   const [connecting, setConnecting] = useState(false);
@@ -60,6 +93,14 @@ function Wizard({ userName }: { userName: string }) {
     }
   };
 
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 size={22} className="animate-spin text-turf-400" />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-12">
       <div className="mb-7 flex items-center gap-2.5">
@@ -67,7 +108,7 @@ function Wizard({ userName }: { userName: string }) {
           <Zap size={18} strokeWidth={2.6} />
         </span>
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-white">Welcome, {userName.split(" ")[0]}</h1>
+          <h1 className="text-lg font-bold tracking-tight text-white">Welcome, {(name || "GM").split(" ")[0]}</h1>
           <p className="text-[12.5px] text-slate-400">Connect a league so your GM has something to run.</p>
         </div>
       </div>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, Loader2, Zap } from "lucide-react";
+import { saveSessionToken } from "@/lib/session-client";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
@@ -24,6 +25,11 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Something went wrong");
+
+      // Keep a copy of the session id. Cookies are the primary mechanism, but
+      // they are silently dropped when the app runs in a cross-site iframe, so
+      // every later request also replays this as a header.
+      saveSessionToken(json.sessionId);
 
       // Cross an auth boundary with a full document navigation rather than a
       // client-side push: it guarantees the brand-new session cookie is used

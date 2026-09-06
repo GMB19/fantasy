@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -25,6 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import { api, useApp } from "./data-provider";
+import { clearSessionToken } from "@/lib/session-client";
 import { Badge, cn, timeAgo, useToast } from "./ui";
 
 const NAV = [
@@ -42,7 +43,6 @@ const NAV = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { data, refresh, setActiveLeagueId, lastUpdated } = useApp();
   const { push } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -98,7 +98,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST", body: {} });
-    router.push("/login");
+    clearSessionToken();
+    window.location.assign("/login");
   };
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { authHeaders, clearSessionToken } from "@/lib/session-client";
 
 export interface SnapshotResponse {
   user: { id: string; name: string; email: string } | null;
@@ -55,9 +56,21 @@ export function AppDataProvider({
       if (!silent) setLoading(true);
       try {
         const qs = activeLeagueId ? `?leagueId=${activeLeagueId}` : "";
-        const res = await fetch(`/api/snapshot${qs}`, { cache: "no-store" });
+        const res = await fetch(`/api/snapshot${qs}`, { cache: "no-store", headers: authHeaders() });
+        if (res.status === 401) {
+          // The session is gone (or was never stored). Bounce to sign-in rather
+          // than sitting on a permanently empty dashboard.
+          clearSessionToken();
+          window.location.assign("/login");
+          return;
+        }
         if (!res.ok) throw new Error(`Snapshot failed (${res.status})`);
         const json = (await res.json()) as SnapshotResponse;
+        if (!json.leagues?.length) {
+          // Authenticated but nothing connected yet.
+          window.location.assign("/connect");
+          return;
+        }
         setData(json);
         setError(null);
         setLastUpdated(Date.now());
@@ -91,7 +104,7 @@ export function AppDataProvider({
       setActive(id);
       fetch(`/api/leagues/${id}`, {
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ activate: true }),
       }).then(() => refresh(true));
     },
@@ -112,7 +125,10 @@ export async function api<T = any>(
 ): Promise<T> {
   const res = await fetch(url, {
     method: options.method ?? "GET",
-    headers: options.body ? { "content-type": "application/json" } : undefined,
+    headers: {
+      ...(options.body ? { "content-type": "application/json" } : {}),
+      ...authHeaders(),
+    },
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });

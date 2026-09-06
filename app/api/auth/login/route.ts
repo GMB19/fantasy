@@ -9,5 +9,10 @@ export async function POST(req: Request) {
   }
   const session = createSession(user.id);
   await setSessionCookie(session);
-  return NextResponse.json({ user: { id: user.id, email: user.email, name: user.name } });
+  // Hand the session id back so the client can keep a copy in localStorage and
+  // replay it as a header when cookies are blocked (embedded/iframe contexts).
+  return NextResponse.json({
+    user: { id: user.id, email: user.email, name: user.name },
+    sessionId: session,
+  });
 }

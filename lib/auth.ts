@@ -4,43 +4,27 @@ import { db } from "./db";
 import { id, now } from "./ids";
 import type { User } from "./types";
 
+/**
+ * The session id travels three ways, because no single mechanism survives
+ * every environment this app gets viewed in:
+ *
+ *  1. `gm_session`     — SameSite=None; Secure; Partitioned. Required when the
+ *                        app is embedded in a cross-site iframe (hosted
+ *                        previews). Rejected by browsers over plain HTTP.
+ *  2. `gm_session_lax` — SameSite=Lax. The ordinary first-party cookie, and the
+ *                        one that works on plain-HTTP local development.
+ *  3. `x-gm-session`   — a request header the client sends from localStorage.
+ *                        The escape hatch for browsers that block third-party
+ *                        cookies outright (Safari, hardened privacy settings),
+ *                        where neither cookie can ever be stored.
+ *
+ * We always write both cookies and always accept any of the three, instead of
+ * trying to detect the environment — detection is exactly what kept failing.
+ */
 const SESSION_COOKIE = "gm_session";
+const SESSION_COOKIE_LAX = "gm_session_lax";
+const SESSION_HEADER = "x-gm-session";
 const SESSION_TTL = 1000 * 60 * 60 * 24 * 30;
-
-/**
- * True when the current request reached us over HTTPS (directly or through a
- * reverse proxy / preview tunnel).
- */
-async function isSecureRequest(): Promise<boolean> {
-  try {
-    const h = await headers();
-    const proto = h.get("x-forwarded-proto");
-    if (proto) return proto.split(",")[0].trim() === "https";
-    return (h.get("forwarded") ?? "").includes("proto=https");
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Cookie attributes that survive being embedded in a cross-site iframe.
- *
- * Hosted previews (and any embed of this app) load it in a third-party frame.
- * Browsers refuse to store a `SameSite=Lax` cookie written from such a frame,
- * which silently breaks sign-in: the request succeeds, the cookie is dropped,
- * and the next navigation looks logged-out.
- *
- * Over HTTPS we therefore use `SameSite=None; Secure`, plus `Partitioned`
- * (CHIPS) so the cookie also survives Chrome's third-party-cookie blocking —
- * it gets scoped to the embedding site rather than being rejected outright.
- * Over plain HTTP (local development) `SameSite=None` is invalid without
- * `Secure`, so we keep `Lax`, which is what a same-origin localhost tab wants.
- */
-function cookieSiteOptions(secure: boolean) {
-  return secure
-    ? ({ sameSite: "none", secure: true, partitioned: true } as const)
-    : ({ sameSite: "lax", secure: false } as const);
-}
 
 export function hashPassword(password: string, salt?: string): string {
   const s = salt ?? crypto.randomBytes(16).toString("hex");
@@ -89,33 +73,49 @@ export function createSession(userId: string): string {
 
 export async function setSessionCookie(sessionId: string) {
   const store = await cookies();
-  const secure = await isSecureRequest();
+  const base = { httpOnly: true, path: "/", maxAge: SESSION_TTL / 1000 } as const;
+  // Cross-site-iframe capable. Browsers on plain HTTP ignore this one.
   store.set(SESSION_COOKIE, sessionId, {
-    httpOnly: true,
-    path: "/",
-    maxAge: SESSION_TTL / 1000,
-    ...cookieSiteOptions(secure),
+    ...base,
+    sameSite: "none",
+    secure: true,
+    partitioned: true,
   });
+  // Plain first-party cookie. Dropped inside a third-party frame, kept locally.
+  store.set(SESSION_COOKIE_LAX, sessionId, { ...base, sameSite: "lax", secure: false });
 }
 
 export async function clearSession() {
   const store = await cookies();
-  const sid = store.get(SESSION_COOKIE)?.value;
+  const sid = await getSessionId();
   if (sid) db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sid);
-  const secure = await isSecureRequest();
-  // Overwrite with an expired cookie using the *same* attributes — a plain
-  // delete() can miss a cookie that was written as Secure/Partitioned.
-  store.set(SESSION_COOKIE, "", {
-    httpOnly: true,
-    path: "/",
-    maxAge: 0,
-    ...cookieSiteOptions(secure),
-  });
+  // Overwrite with matching attributes; delete() can miss a Secure/Partitioned
+  // cookie, which would leave the browser looking signed in.
+  const base = { httpOnly: true, path: "/", maxAge: 0 } as const;
+  store.set(SESSION_COOKIE, "", { ...base, sameSite: "none", secure: true, partitioned: true });
+  store.set(SESSION_COOKIE_LAX, "", { ...base, sameSite: "lax", secure: false });
+}
+
+/** Resolve the session id from either cookie, or the client-sent header. */
+export async function getSessionId(): Promise<string | null> {
+  const store = await cookies();
+  const fromCookie =
+    store.get(SESSION_COOKIE)?.value ?? store.get(SESSION_COOKIE_LAX)?.value ?? null;
+  if (fromCookie) return fromCookie;
+  try {
+    const h = await headers();
+    const header = h.get(SESSION_HEADER);
+    if (header) return header;
+    const auth = h.get("authorization");
+    if (auth?.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
+  } catch {
+    /* headers() unavailable in this context */
+  }
+  return null;
 }
 
 export async function getCurrentUser(): Promise<User | null> {
-  const store = await cookies();
-  const sid = store.get(SESSION_COOKIE)?.value;
+  const sid = await getSessionId();
   if (!sid) return null;
   const row = db
     .prepare(
