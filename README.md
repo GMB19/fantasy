@@ -1,6 +1,6 @@
 # GM — Autonomous Fantasy Football GM for Sleeper
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FGMB19%2Ffantasy)
+[![Deploy with Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/GMB19/fantasy) [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FGMB19%2Ffantasy)
 
 **Autonomous 24/7 fantasy football general manager** that syncs your Sleeper league, uses **FanDuel / sportsbook player props as the primary projection signal**, and continuously optimizes for **championship probability**.
 
@@ -172,7 +172,31 @@ az webapp config appsettings set -g fantasy-rg -n YOUR-APP-NAME --settings SCM_D
 
 Check logs: `az webapp log tail -g fantasy-rg -n YOUR-APP-NAME`
 
-## ▲ Deploy to Vercel (Recommended — instant Sleeper sync + API)
+## ▲ Deploy to Netlify (Recommended — 1-click, instant Sleeper sync + Functions)
+
+**Click to deploy:**
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/GMB19/fantasy)
+
+1. Click button → **Connect to GitHub** → pick `GMB19/fantasy` → **Save & Deploy**
+2. Netlify auto-detects:
+   - **Build command:** `npm run build`
+   - **Publish directory:** `dist`
+   - **Functions directory:** `netlify/functions` (Sleeper proxy)
+3. You get `https://your-site.netlify.app` — Sleeper sync works via `/.netlify/functions/api/*` (rewritten from `/api/*` in `netlify.toml`), SPA fallback `/* → /index.html`.
+
+**Via CLI:**
+```bash
+npm i -g netlify-cli
+netlify login
+netlify init   # link to GMB19/fantasy, build = npm run build, publish = dist
+netlify deploy --prod  # or netlify deploy --build --prod
+```
+
+**Test:** `https://your-site.netlify.app/api/health` → `{ok:true}`, then Header → Sync `GMB4` or League ID.
+
+Also works via drag-and-drop: `npm run build` → drag `dist` to https://app.netlify.com/drop (then add functions separately).
+
+## ▲ Deploy to Vercel (Also ready — instant Sleeper sync + API)
 
 Vercel is the **fastest way to get live Sleeper sync** (full egress, no CORS issues, serverless API). The repo is already Vercel-ready — no env vars needed.
 
