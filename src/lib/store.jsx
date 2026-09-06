@@ -74,15 +74,12 @@ async function fetchSleeperLeagues(userId, season, usernameHint) {
     const r3 = await fetch(`https://api.sleeper.app/v1/user/${encodeURIComponent(userId)}/leagues/nfl/${season}`);
     if (r3.ok) {
       const j3 = await r3.json();
-      if (Array.isArray(j3) && j3.length>0) return j3;
+      if (Array.isArray(j3)) return j3;
     }
   } catch {}
-  // Mock fallback
-  const base = usernameHint || 'gotham_gm';
-  return [
-    { league_id: "112233445566778899", name: `Arena Championship League — @${base}`, season: String(season), total_rosters: 12, avatar: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" },
-    { league_id: "998877665544332211", name: `The Dime Package — @${base}`, season: String(season), total_rosters: 10, avatar: null },
-  ];
+  // On network failure, return null to signal fallback — caller will try next season
+  // Don't return mock here; let syncSleeper decide after trying all seasons
+  return null;
 }
 
 export function StoreProvider({ children }) {
@@ -175,31 +172,42 @@ export function StoreProvider({ children }) {
       setUser(prev=> ({...prev, sleeperUsername: clean, sleeperId: userId, username: clean, displayName: displayName }));
 
       const currentSeason = new Date().getFullYear();
-      const seasonsToTry = [currentSeason, currentSeason-1];
+      // In sandbox date is 2026, but real Sleeper leagues are 2024/2025 — try recent seasons
+      const seasonsToTry = [...new Set([currentSeason, currentSeason-1, currentSeason-2, 2024, 2025, 2023])].sort((a,b)=>b-a);
       let leagues = [];
       let fetchedSeason = currentSeason;
+      let triedSeasons = [];
       for(const s of seasonsToTry){
+        triedSeasons.push(s);
         try{
           const data = await fetchSleeperLeagues(userId, s, clean);
+          // data can be [] (no leagues that season), null (network fail), or [leagues]
           if(Array.isArray(data) && data.length>0){
-            // if mock fallback returned same 2 leagues for both seasons, ensure we respect real vs mock
-            // If we got mock (ids 112233...), still use it but break only if we tried direct and got real
-            // For GH Pages direct fetch, mock will only be returned if fetch failed; so if we got mock on first season, try next season? No need
+            // Detect mock fallback (ids 112233...) — don't treat as real
+            const isMockLeague = data.some(l => String(l.league_id).startsWith('112233'));
+            if (isMockLeague) continue; // try next season for real leagues
             leagues = data;
             fetchedSeason = s;
-            // If leagues look like mock and we haven't tried direct real, keep trying? Actually fetchSleeperLeagues already tried proxy+direct+mock, so if it returns mock, it's because real failed. Break anyway.
-            if (leagues.length>0) break;
+            break;
           }
+          if (Array.isArray(data) && data.length===0) {
+            // no leagues this season, try next
+            continue;
+          }
+          // null => network fail, try next season
         }catch(e){ }
       }
 
+      let leaguesAreMock = false;
       if(!leagues.length){
         leagues = [
           { league_id: "1122334455", name: `Arena Championship League — @${clean}`, season: String(currentSeason), total_rosters: 12, avatar: null },
           { league_id: "9988776655", name: `The Dime Package — @${clean}`, season: String(currentSeason), total_rosters: 10, avatar: null },
         ];
+        leaguesAreMock = true;
       }
 
+      const finalIsMock = isMock || leaguesAreMock;
       setSleeperLeagues(leagues);
       const first = leagues[0];
       setLeague(prev=> ({
@@ -209,7 +217,7 @@ export function StoreProvider({ children }) {
         season: parseInt(first.season) || prev.season,
         avatar: first.avatar ? `https://sleepercdn.com/avatars/thumbs/${first.avatar}` : prev.avatar,
         teamsCount: first.total_rosters || prev.teamsCount,
-        status: isMock ? `Demo Sync • ${leagues.length} league${leagues.length>1?'s':''} (mock)` : `Synced • Week 7 • ${leagues.length} league${leagues.length>1?'s':''} found`,
+        status: finalIsMock ? `Demo Sync • ${leagues.length} league${leagues.length>1?'s':''} (no real leagues found for ${triedSeasons.join(', ')})` : `Synced • Week 7 • ${leagues.length} league${leagues.length>1?'s':''} found (${fetchedSeason})`,
       }));
       setLastSync(new Date().toISOString());
 
@@ -217,19 +225,19 @@ export function StoreProvider({ children }) {
         id: 'a'+Date.now(),
         ts: Date.now(),
         type: 'news',
-        title: isMock ? `Sleeper sync (demo) @${clean} — ${leagues.length} leagues` : `Sleeper sync @${clean} — ${leagues.length} leagues`,
-        desc: isMock
-          ? `Offline or CORS demo — loaded demo leagues: ${leagues.map(l=>`"${l.name}"`).join(', ')}. Tap a league to switch.`
-          : `Loaded "${first.name}" (${first.total_rosters} teams, ${fetchedSeason} season). Switch leagues in header if you have more.`,
-        reasoning: isMock
-          ? 'Server or Sleeper unavailable — used mock fallback so the GM stays alive. Direct Sleeper API will work on GitHub Pages when online.'
+        title: finalIsMock ? `Sleeper sync (demo) @${clean} — ${leagues.length} leagues` : `Sleeper sync @${clean} — ${leagues.length} leagues`,
+        desc: finalIsMock
+          ? `No real leagues found for seasons ${triedSeasons.join(', ')} — loaded demo leagues: ${leagues.map(l=>`"${l.name}"`).join(', ')}. Your Sleeper leagues may be in a different season or private. Tap a league to switch.`
+          : `Loaded "${first.name}" (${first.total_rosters} teams, ${fetchedSeason} season). Tried seasons: ${triedSeasons.join(', ')}. Switch leagues in header if you have more.`,
+        reasoning: finalIsMock
+          ? `Sleeper returned no leagues for ${triedSeasons.join(', ')} (user ${userId} real, _mock=${isMock}). This happens if your leagues are 2023 or earlier, or username has no leagues. Used demo so GM stays alive. Check your Sleeper app for league season.`
           : 'Pulled via Sleeper REST: user → leagues → rosters.',
-        delta: isMock ? 'DEMO MODE' : 'SYNCED',
+        delta: finalIsMock ? 'DEMO MODE' : 'SYNCED',
         status: 'done'
       }, ...a].slice(0,50));
 
-      if(isMock){
-        notify(`Demo sync @${clean} — loaded ${leagues.length} demo leagues (tap to switch)`, 'success');
+      if(finalIsMock){
+        notify(`No real Sleeper leagues for ${triedSeasons.join(', ')} — showing demo for @${clean}. If you have a league, tell me the season or share league ID.`, 'info');
       } else {
         notify(`Synced @${clean} — ${leagues.length} league${leagues.length>1?'s':''} found. Loaded "${first.name}"`, 'success');
       }
