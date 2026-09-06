@@ -7,7 +7,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DATA_PATH = path.join(__dirname, 'data.json');
-const PORT = 3001;
+// Azure Web Apps sets PORT env var (e.g. 8080); fallback for local dev
+const PORT = process.env.PORT || 3001;
 
 const app = express();
 app.use(cors());

@@ -1,0 +1,51 @@
+name: Deploy Fantasy GM to Azure Web App
+
+on:
+  push:
+    branches:
+      - main
+      - arena/01a07705-fantasy
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      # Zip for Azure Deploy
+      - name: Zip artifact
+        run: |
+          zip -r fantasy-gm.zip . -x "node_modules/*" ".git/*" "dist/*" ".arena/*" 
+          # Oryx will rebuild, or include dist:
+          zip -r fantasy-gm.zip dist -x "*.map"
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: fantasy-gm.zip
+
+      # Alternative: if using Service Principal
+      # - name: Azure Login
+      #   uses: azure/login@v2
+      #   with:
+      #     creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # - name: Deploy via az
+      #   run: az webapp deploy --name ${{ secrets.AZURE_WEBAPP_NAME }} --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --src-path fantasy-gm.zip --type zip

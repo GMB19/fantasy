@@ -131,3 +131,41 @@ fantasy/
 ---
 
 **Built to feel like a real 24/7 GM — it scans, it reasons, it acts, and it explains.**
+
+## ☁️ Deploy to Azure Web App (Linux)
+
+This app is **Azure-ready** out of the box:
+- `server/index.js` listens on `process.env.PORT || 3001` (Azure sets `PORT=8080`)
+- `package.json` has `engines.node >=20` and `postinstall` runs `npm run build` for Oryx
+- `.deployment` sets `SCM_DO_BUILD_DURING_DEPLOYMENT=true`
+- `startup.sh` uses `npm start`
+
+### Option A — One-click CLI (if you have `az` logged in)
+
+```bash
+# 1. Create resources (skip if Web App already exists)
+az group create -n fantasy-rg -l eastus
+az appservice plan create -g fantasy-rg -n fantasy-plan --sku B1 --is-linux
+az webapp create -g fantasy-rg -p fantasy-plan -n YOUR-APP-NAME --runtime "NODE:20-lts"
+az webapp config set -g fantasy-rg -n YOUR-APP-NAME --startup-file "npm start"
+az webapp config appsettings set -g fantasy-rg -n YOUR-APP-NAME --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true WEBSITE_NODE_DEFAULT_VERSION=20-lts WEBSITE_RUN_FROM_PACKAGE=0
+
+# 2. Deploy current code
+./deploy.sh YOUR-APP-NAME fantasy-rg
+# → https://YOUR-APP-NAME.azurewebsites.net
+```
+
+### Option B — VS Code / Portal Zip Deploy
+1. Build zip: `npm run build && zip -r fantasy-gm.zip package.json package-lock.json server dist index.html`
+2. Portal → Your Web App → **Deployment Center** → **Zip Deploy** → upload `fantasy-gm.zip`
+3. Set **Startup Command** to `npm start` (Configuration → General settings)
+
+### Option C — GitHub Actions (recommended, auto-deploy on push)
+
+1. In Azure Portal → Web App → **Deployment Center** → **Publish profile** → Download file
+2. In GitHub → `GMB19/fantasy` → **Settings → Secrets → Actions** → add:
+   - `AZURE_WEBAPP_NAME` = `YOUR-APP-NAME`
+   - `AZURE_WEBAPP_PUBLISH_PROFILE` = (paste entire publish profile XML)
+3. Push to `main` or `arena/01a07705-fantasy` — workflow `.github/workflows/azure-webapps.yml` will build & deploy automatically.
+
+Check logs: `az webapp log tail -g fantasy-rg -n YOUR-APP-NAME`
