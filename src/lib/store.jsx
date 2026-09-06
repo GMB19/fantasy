@@ -14,6 +14,74 @@ function loadPersisted() {
   } catch { return null; }
 }
 
+// Sleeper fetch helper that works on both: local Express proxy (/api/sleeper/...) and GitHub Pages (direct https://api.sleeper.app)
+async function fetchSleeperUser(clean) {
+  // 1) Try local proxy (Azure / local dev)
+  try {
+    const r = await fetch(`/api/sleeper/user/${encodeURIComponent(clean)}`);
+    const text = await r.text();
+    let j = null; try { j = JSON.parse(text); } catch {}
+    if (r.ok && j && j.user_id) return j;
+    if (r.ok && j && j._mock) return j; // mock from our server
+    if (r.status === 404) {
+      const e = new Error('User not found'); e.status = 404; throw e;
+    }
+    // if proxy returned mock but status not ok, still use it if it has username
+    if (j && j.username) return j;
+  } catch (e) {
+    if (e.status === 404) throw e;
+    // fall through to direct
+  }
+  // 2) Direct Sleeper API (works on GitHub Pages, CORS allowed)
+  try {
+    const r2 = await fetch(`https://api.sleeper.app/v1/user/${encodeURIComponent(clean)}`);
+    if (r2.ok) {
+      const j2 = await r2.json();
+      if (j2 && j2.user_id) return j2;
+      if (j2 === null) {
+        const e = new Error('User not found'); e.status = 404; throw e;
+      }
+    } else if (r2.status === 404) {
+      const e = new Error('User not found'); e.status = 404; throw e;
+    }
+  } catch (e) {
+    if (e.status === 404) throw e;
+  }
+  // 3) Final mock fallback (offline/demo)
+  return { user_id: String(100000 + Math.floor(Math.random()*900000)), username: clean, display_name: clean, avatar: "b5e737c7a0e7b8f322faddc7a66fdb18", _mock: true, _note: "Offline demo user" };
+}
+
+async function fetchSleeperLeagues(userId, season, usernameHint) {
+  // Try proxy
+  try {
+    const r = await fetch(`/api/sleeper/user/${encodeURIComponent(userId)}/leagues/nfl/${season}`);
+    if (r.ok) {
+      const j = await r.json();
+      if (Array.isArray(j)) return j;
+    }
+    // also try without /nfl for compatibility
+    const r2 = await fetch(`/api/sleeper/user/${encodeURIComponent(userId)}/leagues/${season}`);
+    if (r2.ok) {
+      const j2 = await r2.json();
+      if (Array.isArray(j2)) return j2;
+    }
+  } catch {}
+  // Direct
+  try {
+    const r3 = await fetch(`https://api.sleeper.app/v1/user/${encodeURIComponent(userId)}/leagues/nfl/${season}`);
+    if (r3.ok) {
+      const j3 = await r3.json();
+      if (Array.isArray(j3) && j3.length>0) return j3;
+    }
+  } catch {}
+  // Mock fallback
+  const base = usernameHint || 'gotham_gm';
+  return [
+    { league_id: "112233445566778899", name: `Arena Championship League — @${base}`, season: String(season), total_rosters: 12, avatar: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6" },
+    { league_id: "998877665544332211", name: `The Dime Package — @${base}`, season: String(season), total_rosters: 10, avatar: null },
+  ];
+}
+
 export function StoreProvider({ children }) {
   const [user, setUser] = useState(() => {
     const p = loadPersisted();
@@ -36,23 +104,19 @@ export function StoreProvider({ children }) {
   const [sim, setSim] = useState(() => loadPersisted()?.sim || simulationsSeed);
   const [sleeperSyncing, setSleeperSyncing] = useState(false);
   const [notifications, setNotifications] = useState([]);
-  const [sleeperLeagues, setSleeperLeagues] = useState([]);
+  const [sleeperLeagues, setSleeperLeagues] = useState(() => loadPersisted()?.sleeperLeagues || []);
   const [lastSync, setLastSync] = useState(() => loadPersisted()?.lastSync || null);
 
   // persist
   useEffect(() => {
     const data = { user, isAuthed, league, teams, myRoster, myStarters, trades, waivers, news, activity, aiSettings, sim, lastSync, sleeperLeagues };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    // also try to sync to server if available
     fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).catch(()=>{});
   }, [user, isAuthed, league, teams, myRoster, myStarters, trades, waivers, news, activity, aiSettings, sim, lastSync, sleeperLeagues]);
 
-  // load from server on mount (merge)
   useEffect(() => {
     fetch('/api/data').then(r=>r.json()).then(d=>{
-      if(d && !d.empty && d.league) {
-        // keep server data if fresher? For now ignore to keep demo deterministic
-      }
+      if(d && !d.empty && d.league) {}
     }).catch(()=>{});
   }, []);
 
@@ -79,26 +143,19 @@ export function StoreProvider({ children }) {
     }
     setSleeperSyncing(true);
     notify(`Syncing Sleeper @${clean} …`, 'info');
-    // small artificial delay so user sees loading state even on mock
     await new Promise(r=> setTimeout(r, 650));
 
     try {
-      const uRes = await fetch(`/api/sleeper/user/${encodeURIComponent(clean)}`);
-      const rawText = await uRes.text();
       let u;
-      try { u = JSON.parse(rawText); } catch { u = null; }
-
-      // Handle 404 or error shape
-      if(!uRes.ok){
-        // if server returned mock with 200 but error flag? we already handled above with text parse
-        // 404 case
-        if(uRes.status === 404){
+      try {
+        u = await fetchSleeperUser(clean);
+      } catch (e) {
+        if (e.status === 404) {
           notify(`Sleeper user @${clean} not found — try a different username or use Demo`, 'error');
           setSleeperSyncing(false);
           return { ok:false, notFound:true };
         }
-        // If we got mock fallback (status 200 with _mock, but we are in non-ok branch shouldn't happen)
-        notify(`Sleeper API unavailable — using demo league for @${clean}`, 'info');
+        throw e;
       }
 
       if(!u || (!u.user_id && !u.username)){
@@ -109,42 +166,31 @@ export function StoreProvider({ children }) {
         return { ok:true, demo:true };
       }
 
-      // Success path — user found (real or mock)
       const isMock = !!u._mock;
       const userId = u.user_id;
       const displayName = u.display_name || clean;
       setUser(prev=> ({...prev, sleeperUsername: clean, sleeperId: userId, username: clean, displayName: displayName }));
 
-      // Fetch leagues for current season + previous season as fallback
       const currentSeason = new Date().getFullYear();
       const seasonsToTry = [currentSeason, currentSeason-1];
       let leagues = [];
       let fetchedSeason = currentSeason;
       for(const s of seasonsToTry){
         try{
-          const lRes = await fetch(`/api/sleeper/user/${encodeURIComponent(userId)}/leagues/nfl/${s}`);
-          if(lRes.ok){
-            const data = await lRes.json();
-            if(Array.isArray(data) && data.length>0){
-              leagues = data;
-              fetchedSeason = s;
-              break;
-            }
+          const data = await fetchSleeperLeagues(userId, s, clean);
+          if(Array.isArray(data) && data.length>0){
+            // if mock fallback returned same 2 leagues for both seasons, ensure we respect real vs mock
+            // If we got mock (ids 112233...), still use it but break only if we tried direct and got real
+            // For GH Pages direct fetch, mock will only be returned if fetch failed; so if we got mock on first season, try next season? No need
+            leagues = data;
+            fetchedSeason = s;
+            // If leagues look like mock and we haven't tried direct real, keep trying? Actually fetchSleeperLeagues already tried proxy+direct+mock, so if it returns mock, it's because real failed. Break anyway.
+            if (leagues.length>0) break;
           }
-        }catch(e){ /* continue */ }
-      }
-
-      if(leagues.length===0){
-        // Use mock leagues from server fallback — ensure at least demo
-        try{
-          const fallback = await fetch(`/api/sleeper/user/${encodeURIComponent(userId)}/leagues/nfl/${currentSeason}`);
-          const data = await fallback.json();
-          if(Array.isArray(data) && data.length>0) leagues = data;
-        }catch{}
+        }catch(e){ }
       }
 
       if(!leagues.length){
-        // final fallback — local mock
         leagues = [
           { league_id: "1122334455", name: `Arena Championship League — @${clean}`, season: String(currentSeason), total_rosters: 12, avatar: null },
           { league_id: "9988776655", name: `The Dime Package — @${clean}`, season: String(currentSeason), total_rosters: 10, avatar: null },
@@ -152,9 +198,7 @@ export function StoreProvider({ children }) {
       }
 
       setSleeperLeagues(leagues);
-      // Auto-select first league
       const first = leagues[0];
-      const isDemoLeague = isMock || first.name.includes('Arena Championship');
       setLeague(prev=> ({
         ...prev,
         id: first.league_id || prev.id,
@@ -162,28 +206,27 @@ export function StoreProvider({ children }) {
         season: parseInt(first.season) || prev.season,
         avatar: first.avatar ? `https://sleepercdn.com/avatars/thumbs/${first.avatar}` : prev.avatar,
         teamsCount: first.total_rosters || prev.teamsCount,
-        status: isMock ? `Demo Sync • ${leagues.length} league${leagues.length>1?'s':''} (mock — Sleeper offline in preview)` : `Synced • Week 7 • ${leagues.length} league${leagues.length>1?'s':''} found`,
+        status: isMock ? `Demo Sync • ${leagues.length} league${leagues.length>1?'s':''} (mock)` : `Synced • Week 7 • ${leagues.length} league${leagues.length>1?'s':''} found`,
       }));
       setLastSync(new Date().toISOString());
 
-      // Log to activity
       setActivity(a=> [{
         id: 'a'+Date.now(),
         ts: Date.now(),
         type: 'news',
         title: isMock ? `Sleeper sync (demo) @${clean} — ${leagues.length} leagues` : `Sleeper sync @${clean} — ${leagues.length} leagues`,
         desc: isMock
-          ? `Sleeper API unavailable in this preview (network blocked) — loaded demo leagues: ${leagues.map(l=>`"${l.name}"`).join(', ')}. Tap a league to switch.`
+          ? `Offline or CORS demo — loaded demo leagues: ${leagues.map(l=>`"${l.name}"`).join(', ')}. Tap a league to switch.`
           : `Loaded "${first.name}" (${first.total_rosters} teams, ${fetchedSeason} season). Switch leagues in header if you have more.`,
         reasoning: isMock
-          ? 'E2B sandbox blocks external TLS except GitHub proxy — server returned mock fallback. Roster sync uses demo PPR data so the GM stays alive for evaluation.'
-          : 'Pulled via Sleeper REST: user → leagues → rosters. Mock fallback ensures no empty state.',
+          ? 'Server or Sleeper unavailable — used mock fallback so the GM stays alive. Direct Sleeper API will work on GitHub Pages when online.'
+          : 'Pulled via Sleeper REST: user → leagues → rosters.',
         delta: isMock ? 'DEMO MODE' : 'SYNCED',
         status: 'done'
       }, ...a].slice(0,50));
 
       if(isMock){
-        notify(`Demo sync @${clean} • Sleeper offline in preview — loaded ${leagues.length} demo leagues (tap to switch)`, 'success');
+        notify(`Demo sync @${clean} — loaded ${leagues.length} demo leagues (tap to switch)`, 'success');
       } else {
         notify(`Synced @${clean} — ${leagues.length} league${leagues.length>1?'s':''} found. Loaded "${first.name}"`, 'success');
       }
@@ -223,11 +266,9 @@ export function StoreProvider({ children }) {
     }, ...a]);
   }, [sleeperLeagues, notify]);
 
-  // Autonomous AI loop — every 12s if autonomous
   useEffect(()=>{
     if(!aiSettings.autonomousMode) return;
     const id = setInterval(()=>{
-      // 30% chance to generate activity
       if(Math.random() < 0.3){
         const types = ['trade','waiver','news','simulation','lineup'];
         const t = types[Math.floor(Math.random()*types.length)];
@@ -256,10 +297,7 @@ export function StoreProvider({ children }) {
         }
         if(entry) setActivity(a=> [entry, ...a].slice(0,50));
       }
-      // small chance to update a player projection jitter
-      if(Math.random()<0.15){
-        // no-op, just trigger re-render simulation jitter via sim state above
-      }
+      if(Math.random()<0.15){}
     }, 12000);
     return ()=> clearInterval(id);
   }, [aiSettings.autonomousMode, trades, news, players, sim.playoff, sim.champ]);
@@ -279,7 +317,6 @@ export function StoreProvider({ children }) {
     const eligible = trades.filter(t=> t.autoEligible && t.status==='scanning' && t.confidence >= aiSettings.minConfidenceAuto && t.champDelta >= aiSettings.minChampProbImprovement);
     if(!eligible.length) { notify('No auto-eligible trades meet your thresholds','info'); return; }
     if(!aiSettings.autonomousMode) { notify('Enable Autonomous Mode to auto-send','error'); return; }
-    // respect maxDailyTransactions
     const todayCount = activity.filter(a=> a.type==='trade' && a.ts > Date.now()-24*3600*1000 && a.status==='done').length;
     const remaining = aiSettings.maxDailyTransactions - todayCount;
     if(remaining<=0){ notify('Daily transaction limit reached','error'); return; }
@@ -296,7 +333,6 @@ export function StoreProvider({ children }) {
     if(!w) return;
     const player = players.find(p=>p.id===w.playerId);
     const drop = w.dropId ? players.find(p=>p.id===w.dropId) : null;
-    // add to roster, remove drop if exists
     setMyRoster(ro=> {
       let next = [...ro];
       if(drop && next.includes(drop.id)) next = next.filter(id=> id!==drop.id);
@@ -309,9 +345,7 @@ export function StoreProvider({ children }) {
   }, [waivers, players, notify]);
 
   const optimizeLineup = useCallback(()=>{
-    // simple: sort myPlayers by sportsbookPPG descending, pick optimal by position
     const sorted = [...myPlayers].sort((a,b)=> b.sportsbookPPG - a.sportsbookPPG);
-    // heuristic: choose starters: 1 QB best QB, 2 best RB, 3 best WR, 1 best TE, 1 best remaining FLEX (RB/WR/TE)
     const qbs = sorted.filter(p=>p.pos==='QB');
     const rbs = sorted.filter(p=>p.pos==='RB');
     const wrs = sorted.filter(p=>p.pos==='WR');
@@ -326,7 +360,6 @@ export function StoreProvider({ children }) {
     if(tes[0]) best.push(tes[0].id);
     const flexPool = [...rbs.slice(2), ...wrs.slice(3), ...tes.slice(1)].sort((a,b)=> b.sportsbookPPG - a.sportsbookPPG);
     if(flexPool[0]) best.push(flexPool[0].id);
-    // pad to 9 if needed
     const remainingSlots = 9 - best.length;
     if(remainingSlots>0){
       const leftover = sorted.filter(p=> !best.includes(p.id)).slice(0, remainingSlots);
