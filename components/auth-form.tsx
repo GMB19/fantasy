@@ -1,12 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowRight, Loader2, Zap } from "lucide-react";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
-  const router = useRouter();
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,11 +18,17 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(form),
+        // Make sure the Set-Cookie response is honoured even when the app is
+        // running inside a cross-site iframe.
+        credentials: "same-origin",
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Something went wrong");
-      router.push(mode === "signup" ? "/connect" : "/dashboard");
-      router.refresh();
+
+      // Cross an auth boundary with a full document navigation rather than a
+      // client-side push: it guarantees the brand-new session cookie is used
+      // and that no cached RSC payload from the logged-out state is replayed.
+      window.location.assign(mode === "signup" ? "/connect" : "/dashboard");
     } catch (err: any) {
       setError(err.message);
       setLoading(false);

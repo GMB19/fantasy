@@ -1,13 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ArrowRight, CheckCircle2, Download, Loader2, Sparkles, Users, Zap } from "lucide-react";
 import { api } from "./data-provider";
 import { Badge, EmptyState, Panel, ToastProvider, useToast } from "./ui";
 
 function Wizard({ userName }: { userName: string }) {
-  const router = useRouter();
   const { push } = useToast();
   const [username, setUsername] = useState("");
   const [teamName, setTeamName] = useState("Autonomous FC");
@@ -39,8 +37,9 @@ function Wizard({ userName }: { userName: string }) {
     try {
       await api("/api/sleeper/import", { method: "POST", body: { sleeperLeagueId, teamName } });
       push({ tone: "success", title: "League imported", body: "The AI GM is running its first cycle now." });
-      router.push("/dashboard");
-      router.refresh();
+      // Full navigation so the dashboard layout re-runs its auth/league gate
+      // against the freshly created league.
+      window.location.assign("/dashboard");
     } catch (err: any) {
       push({ tone: "error", title: "Import failed", body: err.message });
       setImporting(null);
@@ -52,8 +51,9 @@ function Wizard({ userName }: { userName: string }) {
     try {
       await api("/api/sleeper/demo", { method: "POST", body: { teamName } });
       push({ tone: "success", title: "Demo league ready", body: "12 teams, 6 played weeks and a live prop feed." });
-      router.push("/dashboard");
-      router.refresh();
+      // Full navigation so the dashboard layout re-runs its auth/league gate
+      // against the freshly created league.
+      window.location.assign("/dashboard");
     } catch (err: any) {
       push({ tone: "error", title: "Could not create demo league", body: err.message });
       setDemoLoading(false);
