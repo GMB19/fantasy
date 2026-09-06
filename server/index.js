@@ -30,50 +30,113 @@ function saveData(data) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2));
 }
 
-// Sleeper proxy
+// --- Mock Sleeper data for offline/demo (e2b network blocks external) ---
+function mockUser(username) {
+  return {
+    user_id: String(100000 + Math.floor(Math.random()*900000)),
+    username: username,
+    display_name: username,
+    avatar: "b5e737c7a0e7b8f322faddc7a66fdb18",
+    is_bot: false
+  };
+}
+function mockLeagues(userId, season, usernameHint) {
+  const base = usernameHint || 'gotham_gm';
+  return [
+    {
+      league_id: "112233445566778899",
+      name: `Arena Championship League — @${base}`,
+      season: String(season),
+      season_type: "regular",
+      total_rosters: 12,
+      status: "in_season",
+      sport: "nfl",
+      scoring_settings: { rec: 1, rush_yd: 0.1 },
+      roster_positions: ["QB","RB","RB","WR","WR","WR","TE","FLEX","BN","BN","BN","BN","BN","BN","IR"],
+      avatar: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+      settings: { playoff_week_start: 15, trade_deadline: 11 }
+    },
+    {
+      league_id: "998877665544332211",
+      name: `The Dime Package — @${base}`,
+      season: String(season),
+      season_type: "regular",
+      total_rosters: 10,
+      status: "in_season",
+      sport: "nfl",
+      scoring_settings: { rec: 0.5 },
+      roster_positions: ["QB","RB","RB","WR","WR","TE","FLEX","BN","BN","BN","IR"],
+      avatar: null,
+      settings: { playoff_week_start: 15 }
+    }
+  ];
+}
+
+// Sleeper proxy with offline fallback
 app.get('/api/sleeper/user/:username', async (req, res) => {
+  const { username } = req.params;
+  if(!username || username.length < 2) return res.status(400).json({ error: 'Invalid username' });
   try {
-    const r = await fetch(`https://api.sleeper.app/v1/user/${req.params.username}`);
-    const data = await r.json();
-    if (!data) return res.status(404).json({ error: 'User not found' });
-    res.json(data);
+    const r = await fetch(`https://api.sleeper.app/v1/user/${encodeURIComponent(username)}`, { signal: AbortSignal.timeout(3500) });
+    if(r.ok){
+      const data = await r.json();
+      if(data && data.user_id) return res.json(data);
+      // Sleeper returns null for not found -> return 404 so client can show error
+      if(data === null) return res.status(404).json({ error: 'User not found on Sleeper', mockAvailable: true });
+    }
+    // non-ok -> fallback to mock but tell client it's demo
+    console.log(`[Sleeper] fallback mock user for ${username} (status ${r.status})`);
+    return res.json({ ...mockUser(username), _mock: true, _note: "Sleeper API unavailable — demo user returned (e2b offline)" });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.log(`[Sleeper] fetch failed for ${username}:`, e.message, "=> mock fallback");
+    return res.json({ ...mockUser(username), _mock: true, _note: "Sleeper API offline — demo user (network blocked)" });
   }
 });
 
-app.get('/api/sleeper/user/:userId/leagues/:season', async (req, res) => {
+async function handleLeagues(req, res){
+  const { userId, season } = req.params;
   try {
-    const r = await fetch(`https://api.sleeper.app/v1/user/${req.params.userId}/leagues/nfl/${req.params.season}`);
-    const data = await r.json();
-    res.json(data);
+    const r = await fetch(`https://api.sleeper.app/v1/user/${encodeURIComponent(userId)}/leagues/nfl/${encodeURIComponent(season)}`, { signal: AbortSignal.timeout(3500) });
+    if(r.ok){
+      const data = await r.json();
+      if(Array.isArray(data)) return res.json(data);
+    }
+    console.log(`[Sleeper] fallback mock leagues for ${userId} season ${season}`);
+    return res.json(mockLeagues(userId, season));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.log(`[Sleeper] leagues fetch failed:`, e.message, "=> mock");
+    return res.json(mockLeagues(userId, season));
   }
-});
+}
+app.get('/api/sleeper/user/:userId/leagues/nfl/:season', handleLeagues);
+app.get('/api/sleeper/user/:userId/leagues/:season', handleLeagues);
 
 app.get('/api/sleeper/league/:leagueId', async (req, res) => {
   try {
     const [league, rosters, users] = await Promise.all([
-      fetch(`https://api.sleeper.app/v1/league/${req.params.leagueId}`).then(r => r.json()),
-      fetch(`https://api.sleeper.app/v1/league/${req.params.leagueId}/rosters`).then(r => r.json()),
-      fetch(`https://api.sleeper.app/v1/league/${req.params.leagueId}/users`).then(r => r.json()),
+      fetch(`https://api.sleeper.app/v1/league/${req.params.leagueId}`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()),
+      fetch(`https://api.sleeper.app/v1/league/${req.params.leagueId}/rosters`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()),
+      fetch(`https://api.sleeper.app/v1/league/${req.params.leagueId}/users`, { signal: AbortSignal.timeout(3500) }).then(r => r.json()),
     ]);
     res.json({ league, rosters, users });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(200).json({ 
+      league: mockLeagues(req.params.leagueId, new Date().getFullYear())[0],
+      rosters: [],
+      users: [],
+      _mock: true
+    });
   }
 });
 
 app.get('/api/sleeper/players', async (req, res) => {
   try {
-    const r = await fetch(`https://api.sleeper.app/v1/players/nfl`, { headers: { 'Accept-Encoding': 'gzip' } });
+    const r = await fetch(`https://api.sleeper.app/v1/players/nfl`, { headers: { 'Accept-Encoding': 'gzip' }, signal: AbortSignal.timeout(5000) });
     const data = await r.json();
-    // return top 300 for brevity
     const subset = Object.entries(data).slice(0, 800).reduce((acc, [k,v]) => { acc[k]=v; return acc; }, {});
     res.json(subset);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: e.message, _mock: false });
   }
 });
 

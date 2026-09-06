@@ -3,7 +3,7 @@ import { TrendingUp, TrendingDown, Zap, Trophy, Target, Users, Calendar, ArrowUp
 import { AreaChart, Area, ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts'
 
 export default function TeamOverview(){
-  const { myTeam, myPlayers, starterPlayers, benchPlayers, players, sim, league, schedule, aiSettings, notify, setMyStarters } = useStore();
+  const { myTeam, myPlayers, starterPlayers, benchPlayers, players, sim, league, schedule, aiSettings, notify, setMyStarters, syncSleeper, sleeperSyncing, user } = useStore();
   const ppg = {
     sleeve: (starterPlayers.reduce((s,p)=> s+p.sleeperPPG,0)).toFixed(1),
     book: (starterPlayers.reduce((s,p)=> s+p.sportsbookPPG,0)).toFixed(1),
@@ -28,9 +28,11 @@ export default function TeamOverview(){
         </div>
         <div className="flex items-center gap-2">
           <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-full bg-white border border-ink-200 text-xs font-bold">
-            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" /> SYNCED TO SLEEPER • {league.name}
+            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" /> SYNCED TO SLEEPER • {league.name} • @{user.sleeperUsername}
           </div>
-          <button onClick={()=> notify('Sleeper sync refreshed — roster up to date','success')} className="px-4 py-2 rounded-full bg-ink-900 text-white text-sm font-bold">Sync Sleeper</button>
+          <button disabled={sleeperSyncing} onClick={()=> syncSleeper(user.sleeperUsername || 'gotham_gm')} className="px-4 py-2 rounded-full bg-ink-900 text-white text-sm font-bold disabled:opacity-50 flex items-center gap-2">
+            {sleeperSyncing ? 'Syncing…' : 'Sync Sleeper'}
+          </button>
         </div>
       </div>
 

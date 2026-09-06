@@ -1,12 +1,21 @@
-import { Search, Bell, Menu, Radio, Link2 } from 'lucide-react'
+import { Search, Bell, Menu, Radio, Link2, Loader2, Check, ChevronDown } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useState } from 'react'
 
 export default function Header({ onMenu }) {
-  const { notifications, notify, syncSleeper, sleeperSyncing, user } = useStore();
+  const { notifications, notify, syncSleeper, sleeperSyncing, user, league, sleeperLeagues, switchLeague, lastSync } = useStore();
   const [q, setQ] = useState('');
   const [showSync, setShowSync] = useState(false);
   const [sleeperName, setSleeperName] = useState(user.sleeperUsername || '');
+  const [leaguesOpen, setLeaguesOpen] = useState(false);
+
+  // Keep input synced when user changes externally
+  // useEffect not needed for simple case — update on open
+  const openSync = () => {
+    setSleeperName(user.sleeperUsername || '');
+    setShowSync(v=> !v);
+  };
+
   return (
     <div className="sticky top-0 z-30 bg-[#f8fafb]/80 glass border-b border-ink-200">
       <div className="flex items-center gap-3 px-4 lg:px-6 py-3">
@@ -26,7 +35,12 @@ export default function Header({ onMenu }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={()=> setShowSync(!showSync)} className="hidden md:flex items-center gap-2 px-3 py-2 rounded-full bg-white border border-ink-200 text-xs font-bold hover:bg-ink-50"><Link2 size={14}/> Sleeper: @{user.sleeperUsername || 'not linked'}</button>
+          <button onClick={openSync} className={`flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-bold transition ${showSync?'bg-ink-900 text-white border-ink-900':'bg-white border-ink-200 hover:bg-ink-50'}`}>
+            {sleeperSyncing ? <Loader2 size={14} className="animate-spin"/> : <Link2 size={14}/>}
+            <span className="hidden sm:inline">Sleeper: @{user.sleeperUsername || 'not linked'}</span>
+            <span className="sm:hidden">Sleeper</span>
+            {lastSync && !sleeperSyncing && <span className="hidden lg:inline-flex w-2 h-2 bg-emerald-500 rounded-full ml-1" title={`Last sync ${new Date(lastSync).toLocaleTimeString()}`} />}
+          </button>
           <button className="hidden md:flex items-center gap-2 px-3 py-2 rounded-full bg-ink-900 text-white text-xs font-bold"><Radio size={14}/> GAME DAY 1:00 PM</button>
           <button className="relative w-9 h-9 grid place-items-center rounded-full bg-white border border-ink-200" onClick={()=> notify('3 new news items — check News tab','info')}>
             <Bell size={16} />
@@ -36,18 +50,72 @@ export default function Header({ onMenu }) {
       </div>
 
       {showSync && (
-        <div className="px-4 lg:px-6 pb-3">
-          <div className="bg-white border border-ink-200 rounded-2xl p-4 flex flex-wrap gap-3 items-end shadow-lg">
-            <div className="flex-1 min-w-[220px]">
-              <div className="text-[11px] font-black tracking-widest text-ink-500">SLEEPER USERNAME</div>
-              <div className="flex gap-2 mt-1">
-                <span className="px-3 py-2.5 rounded-xl bg-ink-50 border border-ink-200 text-sm font-bold">@</span>
-                <input value={sleeperName} onChange={e=> setSleeperName(e.target.value)} placeholder="your_sleeper_username" className="flex-1 px-3 py-2.5 rounded-xl bg-ink-50 border border-ink-200 text-sm font-medium" />
+        <div className="px-4 lg:px-6 pb-4">
+          <div className="bg-white border border-ink-200 rounded-[20px] p-4 shadow-xl">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+              <div>
+                <div className="font-black flex items-center gap-2">Sleeper Sync <span className="text-[11px] font-black tracking-widest bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-1 rounded-full">REAL API + DEMO FALLBACK</span></div>
+                <div className="text-xs font-medium text-ink-500 mt-1">Enter any Sleeper username — we hit <span className="font-mono bg-ink-50 border border-ink-200 px-1 rounded">/api/sleeper/user/:username</span> (proxied). If offline (preview), mock leagues are returned so the button always does something.</div>
               </div>
-              <div className="text-xs font-medium text-ink-500 mt-1">Real Sleeper API: we call /v1/user/username → leagues → rosters. Falls back to demo if not found.</div>
+              <button onClick={()=> setShowSync(false)} className="px-3 py-1.5 rounded-full bg-white border border-ink-200 text-xs font-bold">Close</button>
             </div>
-            <button disabled={sleeperSyncing} onClick={async()=> { await syncSleeper(sleeperName); setShowSync(false); }} className="px-5 py-3 rounded-full bg-emerald-600 text-white font-black text-sm disabled:opacity-60">{sleeperSyncing?'Syncing…':'Sync Sleeper →'}</button>
-            <button onClick={()=> setShowSync(false)} className="px-4 py-3 rounded-full bg-white border border-ink-200 font-bold text-sm">Close</button>
+
+            <div className="grid md:grid-cols-[1fr_auto] gap-3 items-end">
+              <div>
+                <div className="text-[11px] font-black tracking-widest text-ink-500">SLEEPER USERNAME</div>
+                <div className="flex gap-2 mt-1">
+                  <span className="px-3 py-3 rounded-2xl bg-ink-50 border border-ink-200 text-sm font-bold">@</span>
+                  <input value={sleeperName} onChange={e=> setSleeperName(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') syncSleeper(sleeperName).then(()=> setSleeperName(user.sleeperUsername || sleeperName)); }} placeholder="your_sleeper_username  • try: sleeper" className="flex-1 px-4 py-3 rounded-2xl bg-ink-50 border border-ink-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-ink-900/10" autoFocus />
+                </div>
+                <div className="text-xs font-medium text-ink-500 mt-1.5 flex flex-wrap gap-2">
+                  <span>Current: <b>@{user.sleeperUsername}</b> → <b>{league.name}</b> • {league.teamsCount} teams</span>
+                  {lastSync && <span>• Last sync {new Date(lastSync).toLocaleString()}</span>}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  disabled={sleeperSyncing}
+                  onClick={async()=> {
+                    const r = await syncSleeper(sleeperName);
+                    // keep input synced after success
+                    if(r?.ok) setSleeperName(clean=> clean);
+                  }}
+                  className="px-6 py-3 rounded-full bg-emerald-600 text-white font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[140px] justify-center"
+                >
+                  {sleeperSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing…</> : 'Sync Sleeper →'}
+                </button>
+              </div>
+            </div>
+
+            {sleeperLeagues.length>0 && (
+              <div className="mt-4 border-t border-ink-200 pt-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] font-black tracking-widest text-ink-500">YOUR LEAGUES ({sleeperLeagues.length}) — TAP TO SWITCH</div>
+                  <button onClick={()=> setLeaguesOpen(!leaguesOpen)} className="text-xs font-bold flex items-center gap-1">{leaguesOpen?'Hide':'Show'} <ChevronDown size={12} className={`transition ${leaguesOpen?'rotate-180':''}`}/></button>
+                </div>
+                {(leaguesOpen || sleeperLeagues.length<=2) && (
+                  <div className="mt-2 grid md:grid-cols-2 gap-2">
+                    {sleeperLeagues.map(l=> {
+                      const active = l.league_id===league.id;
+                      return (
+                        <button key={l.league_id} onClick={()=> switchLeague(l.league_id)} className={`text-left p-3 rounded-2xl border flex items-center gap-3 ${active?'bg-ink-900 text-white border-ink-900':'bg-ink-50 border-ink-200 hover:bg-white'}`}>
+                          <div className={`w-9 h-9 rounded-xl grid place-items-center font-black text-sm shrink-0 ${active?'bg-white text-ink-900':'bg-ink-900 text-white'}`}>{l.total_rosters}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-sm truncate">{l.name}</div>
+                            <div className={`text-xs font-medium ${active?'text-white/70':'text-ink-500'}`}>{l.season} • {l.total_rosters} teams • {l.league_id.slice(-6)}</div>
+                          </div>
+                          {active && <Check size={16} className="text-emerald-400 shrink-0"/>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-3 rounded-2xl bg-amber-50 border border-amber-200 p-3 text-xs font-medium">
+              <b>Heads up:</b> This preview runs in e2b which blocks <b>sleeper.app</b> TLS (only GitHub is proxied). The server auto-returns <b>mock leagues</b> so sync always succeeds — real Sleeper works when deployed (Vercel/Render) where egress is open. Check Activity Log for sync detail.
+            </div>
           </div>
         </div>
       )}

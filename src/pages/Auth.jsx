@@ -60,7 +60,14 @@ export default function Auth(){
               <div className="text-xs font-medium text-ink-500 mt-1.5">We’ll pull your leagues, rosters, and scoring via Sleeper API. Demo keeps data if none found.</div>
             </div>
 
-            <button disabled={sleeperSyncing} onClick={()=> syncSleeper(sleeper)} className="w-full py-3 rounded-full bg-emerald-600 text-white font-black flex items-center justify-center gap-2 disabled:opacity-60">
+            <button disabled={sleeperSyncing} onClick={async()=>{
+              const r = await syncSleeper(sleeper);
+              if(r?.ok){
+                setIsAuthed(true);
+                setUser(u=> ({...u, email}));
+                notify('Sleeper synced — entering dashboard','success');
+              }
+            }} className="w-full py-3 rounded-full bg-emerald-600 text-white font-black flex items-center justify-center gap-2 disabled:opacity-60">
               {sleeperSyncing ? 'Syncing…' : 'Sync Sleeper League →'}
             </button>
             <button onClick={()=> { setIsAuthed(true); notify('Continuing with demo league — you can sync Sleeper later from header','info'); }} className="w-full py-3 rounded-full bg-white border border-ink-200 font-bold">Skip — Use Demo League</button>
