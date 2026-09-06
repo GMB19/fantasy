@@ -169,3 +169,29 @@ az webapp config appsettings set -g fantasy-rg -n YOUR-APP-NAME --settings SCM_D
 3. Push to `main` or `arena/01a07705-fantasy` — workflow `.github/workflows/azure-webapps.yml` will build & deploy automatically.
 
 Check logs: `az webapp log tail -g fantasy-rg -n YOUR-APP-NAME`
+
+## 🌐 GitHub Pages (Static)
+
+This app also deploys **100% static** to GitHub Pages — no server needed. Sleeper sync falls back to direct `https://api.sleeper.app` (CORS) + mock data, so it works offline.
+
+**Live URL (after you enable Pages):** `https://GMB19.github.io/fantasy/`
+
+### Already set up for you
+- `vite.config.js` uses `base: '/fantasy/'` when `VITE_GH_PAGES=true`
+- `BrowserRouter` uses `basename={import.meta.env.BASE_URL}` + `public/404.html` SPA hack so refresh/deep-links work (`/fantasy/ai-gm` etc.)
+- `src/lib/store.jsx` tries ` /api/sleeper/*` first (Azure), then direct Sleeper API — so GH Pages sync works without Express
+- Workflow `.github/workflows/gh-pages.yml` builds with `VITE_GH_PAGES=true`, copies SPA 404, uploads `dist/` via `actions/deploy-pages`
+- Classic `gh-pages` branch already pushed with a `Vite GH Pages` build (`/fantasy/assets/...`) — you can use *either* method:
+
+### Option 1 — GitHub Actions (recommended, auto on push)
+1. Go to **https://github.com/GMB19/fantasy/settings/pages**
+2. Under **Build and deployment → Source** select **GitHub Actions**
+3. Push to `main` (already done) — workflow `Deploy to GitHub Pages` will run, then your site is live at `https://GMB19.github.io/fantasy/`
+4. Check **Actions → Deploy to GitHub Pages → latest run**
+
+### Option 2 — Classic branch (instant, no workflow needed)
+1. **https://github.com/GMB19/fantasy/settings/pages**
+2. Source → **Deploy from a branch**, Branch → **gh-pages** / **/(root)** → **Save**
+3. Wait 30-60s → `https://GMB19.github.io/fantasy/` is live (we already pushed the built `gh-pages` branch)
+
+> The bot token in this sandbox can't enable Pages via API (403), so you need to flip the switch once in settings — after that, every push to `main`/`arena/*` auto-deploys.
