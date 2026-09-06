@@ -23,11 +23,14 @@ async function fetchSleeperUser(clean) {
     let j = null; try { j = JSON.parse(text); } catch {}
     if (r.ok && j && j.user_id) return j;
     if (r.ok && j && j._mock) return j; // mock from our server
-    if (r.status === 404) {
+    // On GitHub Pages /api/sleeper will 404 with HTML (spa fallback) — don't treat as "user not found",
+    // just fall through to direct Sleeper API. Only treat as not-found if JSON explicitly says so.
+    if (j && j.error && r.status === 404) {
       const e = new Error('User not found'); e.status = 404; throw e;
     }
     // if proxy returned mock but status not ok, still use it if it has username
     if (j && j.username) return j;
+    // otherwise fall through to direct — do NOT throw on proxy 404 HTML
   } catch (e) {
     if (e.status === 404) throw e;
     // fall through to direct
