@@ -1,5 +1,7 @@
 # GM — Autonomous Fantasy Football GM for Sleeper
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FGMB19%2Ffantasy)
+
 **Autonomous 24/7 fantasy football general manager** that syncs your Sleeper league, uses **FanDuel / sportsbook player props as the primary projection signal**, and continuously optimizes for **championship probability**.
 
 Built as a full-stack platform with a polished modern dashboard, real Sleeper API sync, and a living AI that scans every 12 seconds — not a static mockup.
@@ -169,6 +171,42 @@ az webapp config appsettings set -g fantasy-rg -n YOUR-APP-NAME --settings SCM_D
 3. Push to `main` or `arena/01a07705-fantasy` — workflow `.github/workflows/azure-webapps.yml` will build & deploy automatically.
 
 Check logs: `az webapp log tail -g fantasy-rg -n YOUR-APP-NAME`
+
+## ▲ Deploy to Vercel (Recommended — instant Sleeper sync + API)
+
+Vercel is the **fastest way to get live Sleeper sync** (full egress, no CORS issues, serverless API). The repo is already Vercel-ready — no env vars needed.
+
+**1-line deploy:**
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FGMB19%2Ffantasy)
+
+**Or via Dashboard:**
+1. Go to **https://vercel.com/new** → **Import Git Repository** → `GMB19/fantasy`
+2. Framework is auto-detected as **Vite** — leave defaults:
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+3. Click **Deploy** → you get `https://fantasy-xxx.vercel.app`
+
+**Or via CLI:**
+```bash
+npm i -g vercel
+vercel --prod          # link & deploy, or
+vercel deploy --prebuilt --prod
+```
+
+**How it works:**
+- `vercel.json` rewrites `/api/*` → `api/index.js` (Express serverless function)
+- `api/index.js` proxies Sleeper (`user`, `leagues`, `league/:id`, `players`) with mock fallback, and handles `/api/data` ephemerally (real persistence is `localStorage`)
+- `vite.config.js` uses `base: '/'` on Vercel (vs `/fantasy/` on GH Pages) — auto-detected via `VITE_GH_PAGES`
+- Sync via **Username** (`Header → Sync Sleeper`) or **League ID** (`OR — SLEEPER LEAGUE ID` — most reliable, bypasses season scan) — both hit `api/sleeper/*` on Vercel
+
+**Verify:**
+- Visit your Vercel URL → Header → enter `GMB4` or paste League ID → Sync → real leagues load (no demo fallback on Vercel where Sleeper egress is open). Check Network → `/api/sleeper/user/GMB4` 200, `/api/health` 200.
+- Local dev still works: `npm run dev` (Vite → `localhost:3001` via `server/index.js`)
+
+Live GH Pages still supported below — but Vercel gives you server proxy + future DB/auth upgrades.
+
+---
 
 ## 🌐 GitHub Pages (Static)
 

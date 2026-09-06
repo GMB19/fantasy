@@ -82,6 +82,26 @@ async function fetchSleeperLeagues(userId, season, usernameHint) {
   return null;
 }
 
+async function fetchLeagueById(leagueId) {
+  // Proxy first
+  try {
+    const r = await fetch(`/api/sleeper/league/${encodeURIComponent(leagueId)}`);
+    if (r.ok) {
+      const j = await r.json();
+      if (j && (j.league || j.league_id)) return j.league ? j : { league: j };
+    }
+  } catch {}
+  // Direct
+  try {
+    const r2 = await fetch(`https://api.sleeper.app/v1/league/${encodeURIComponent(leagueId)}`);
+    if (r2.ok) {
+      const j2 = await r2.json();
+      if (j2 && j2.league_id) return { league: j2 };
+    }
+  } catch {}
+  return null;
+}
+
 export function StoreProvider({ children }) {
   const [user, setUser] = useState(() => {
     const p = loadPersisted();
@@ -255,6 +275,58 @@ export function StoreProvider({ children }) {
     }
   }, [notify]);
 
+  const syncLeagueById = useCallback(async (leagueId) => {
+    const clean = (leagueId || '').trim();
+    if (!clean) { notify('Enter Sleeper League ID — found in sleeper.app URL /leagues/<id>', 'error'); return { ok:false }; }
+    // Sleeper league IDs are numeric ~ 9-18 digits
+    if (clean.length < 9) { notify('League ID looks short — copy full ID from Sleeper URL', 'error'); return { ok:false }; }
+    setSleeperSyncing(true);
+    notify(`Syncing league ${clean.slice(0,8)}… via direct ID`, 'info');
+    await new Promise(r=> setTimeout(r, 400));
+    try {
+      const data = await fetchLeagueById(clean);
+      if (!data || !data.league) {
+        notify(`League ${clean.slice(0,8)} not found — check ID. Sleeper URL is https://sleeper.com/leagues/<id> or sleeper.app`, 'error');
+        setSleeperSyncing(false);
+        return { ok:false };
+      }
+      const l = data.league;
+      setSleeperLeagues(prev => {
+        const exists = prev.find(x=> String(x.league_id)===String(l.league_id));
+        if (exists) return prev;
+        return [...prev, l];
+      });
+      setLeague(prev=> ({
+        ...prev,
+        id: String(l.league_id),
+        name: l.name,
+        season: parseInt(l.season) || prev.season,
+        avatar: l.avatar ? `https://sleepercdn.com/avatars/thumbs/${l.avatar}` : prev.avatar,
+        teamsCount: l.total_rosters || prev.teamsCount,
+        status: `Synced via League ID • ${l.season} • ${l.total_rosters} teams`,
+      }));
+      setLastSync(new Date().toISOString());
+      setActivity(a=> [{
+        id: 'a'+Date.now(),
+        ts: Date.now(),
+        type: 'news',
+        title: `Synced league "${l.name}" via ID`,
+        desc: `${l.total_rosters} teams • ${l.season} season • ID ${String(l.league_id).slice(-6)}`,
+        reasoning: 'Direct league ID fetch — bypasses username→season lookup. Most reliable on GH Pages where username season scan can miss older leagues.',
+        delta: 'SYNCED',
+        status: 'done'
+      }, ...a]);
+      notify(`Synced "${l.name}" via League ID — ${l.total_rosters} teams, ${l.season}`, 'success');
+      setSleeperSyncing(false);
+      return { ok:true, league:l };
+    } catch(e){
+      console.error('syncLeagueById', e);
+      notify(`League sync failed: ${e.message}`, 'error');
+      setSleeperSyncing(false);
+      return { ok:false, error:e.message };
+    }
+  }, [notify]);
+
   const switchLeague = useCallback((leagueId)=>{
     const picked = sleeperLeagues.find(l=> l.league_id===leagueId);
     if(!picked) return;
@@ -394,7 +466,7 @@ export function StoreProvider({ children }) {
     activity, setActivity,
     aiSettings, updateAiSettings, setAiSettings,
     sim, setSim, schedule: scheduleSeed,
-    sleeperSyncing, syncSleeper, sleeperLeagues, switchLeague, lastSync,
+    sleeperSyncing, syncSleeper, syncLeagueById, sleeperLeagues, switchLeague, lastSync,
     notifications, notify,
     optimizeLineup
   };

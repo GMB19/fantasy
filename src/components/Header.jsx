@@ -1,12 +1,13 @@
-import { Search, Bell, Menu, Radio, Link2, Loader2, Check, ChevronDown } from 'lucide-react'
+import { Search, Bell, Menu, Radio, Link2, Loader2, Check, ChevronDown, Hash } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { useState } from 'react'
 
 export default function Header({ onMenu }) {
-  const { notifications, notify, syncSleeper, sleeperSyncing, user, league, sleeperLeagues, switchLeague, lastSync } = useStore();
+  const { notifications, notify, syncSleeper, syncLeagueById, sleeperSyncing, user, league, sleeperLeagues, switchLeague, lastSync } = useStore();
   const [q, setQ] = useState('');
   const [showSync, setShowSync] = useState(false);
   const [sleeperName, setSleeperName] = useState(user.sleeperUsername || '');
+  const [leagueId, setLeagueId] = useState('');
   const [leaguesOpen, setLeaguesOpen] = useState(false);
 
   // Keep input synced when user changes externally
@@ -85,6 +86,18 @@ export default function Header({ onMenu }) {
                   {sleeperSyncing ? <><Loader2 size={16} className="animate-spin"/> Syncing…</> : 'Sync Sleeper →'}
                 </button>
               </div>
+            </div>
+
+            {/* OR — League ID direct sync (most reliable on GH Pages / Vercel) */}
+            <div className="mt-3 rounded-2xl bg-ink-50 border border-ink-200 p-3">
+              <div className="text-[11px] font-black tracking-widest text-ink-500 flex items-center gap-1.5"><Hash size={12} /> OR — SLEEPER LEAGUE ID <span className="font-medium tracking-normal normal-case text-ink-400">(most reliable — from URL sleeper.com/leagues/&lt;id&gt;)</span></div>
+              <div className="flex gap-2 mt-2">
+                <input value={leagueId} onChange={e=> setLeagueId(e.target.value)} onKeyDown={e=> { if(e.key==='Enter') syncLeagueById(leagueId); }} placeholder="e.g. 112233445566778899" className="flex-1 px-4 py-2.5 rounded-xl bg-white border border-ink-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ink-900/10" />
+                <button disabled={sleeperSyncing || leagueId.trim().length<9} onClick={()=> syncLeagueById(leagueId)} className="px-5 py-2.5 rounded-full bg-ink-900 text-white font-black text-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 shrink-0">
+                  {sleeperSyncing ? <><Loader2 size={14} className="animate-spin"/> Syncing…</> : 'Sync League ID →'}
+                </button>
+              </div>
+              <div className="text-[11px] font-medium text-ink-500 mt-1.5">Paste the numeric ID from your Sleeper league URL. This bypasses the username scan — works instantly on Vercel & GitHub Pages.</div>
             </div>
 
             {sleeperLeagues.length>0 && (

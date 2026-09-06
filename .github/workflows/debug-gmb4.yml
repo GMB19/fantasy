@@ -1,0 +1,31 @@
+name: Debug Sleeper GMB4
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/debug-gmb4.yml"
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch GMB4 user
+        run: |
+          echo "=== USER GMB4 ==="
+          curl -s https://api.sleeper.app/v1/user/GMB4 | head -c 2000
+          echo ""
+          echo "=== USER gmb4 (lower) ==="
+          curl -s https://api.sleeper.app/v1/user/gmb4 | head -c 2000
+          echo ""
+      - name: Fetch leagues for GMB4 (try user_id)
+        run: |
+          UID=$(curl -s https://api.sleeper.app/v1/user/GMB4 | jq -r .user_id 2>/dev/null || curl -s https://api.sleeper.app/v1/user/GMB4 | python3 -c "import sys,json;print(json.load(sys.stdin).get('user_id',''))" 2>/dev/null || echo "")
+          echo "UID=$UID"
+          for season in 2024 2025 2023 2026; do
+            echo "=== LEAGUES $season ==="
+            curl -s https://api.sleeper.app/v1/user/$UID/leagues/nfl/$season | head -c 3000
+            echo ""
+          done
+      - name: Check GMB4 via proxy logic
+        run: |
+          echo "Testing via Sleeper API directly from runner (should work)"
+          curl -s -w "\nHTTP_CODE:%{http_code}\n" https://api.sleeper.app/v1/user/GMB4 | head -n 50
