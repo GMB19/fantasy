@@ -28,6 +28,11 @@ Other scripts: `npm run build`, `npm start`, `npm run typecheck`.
 The database is a single SQLite file at `data/gridiron.db` (created automatically, git-ignored).
 Delete it to reset everything.
 
+> **If `npm install` fails on `better-sqlite3` / `node-gyp`**, use `npm install --ignore-scripts`.
+> The package ships prebuilt binaries for every common platform in its npm tarball, so the
+> source rebuild npm attempts is unnecessary — and it fails outright on machines that cannot
+> reach `nodejs.org` to download the Node headers.
+
 ---
 
 ## The projection engine
